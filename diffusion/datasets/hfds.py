@@ -4,6 +4,7 @@ from typing import Callable, Dict, List, Optional, Union
 
 import datasets as ds
 import torch
+from datasets import DownloadConfig
 from PIL import Image
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -19,13 +20,12 @@ logger = logging.getLogger(__name__)
 
 
 def func(
-    img,
-    caption,
+    sample,
     *,
     crop: RandomCropSquare,
     transform: transforms.Compose,
-    # image_key: str,
-    # caption_key: str,
+    image_key: str,
+    caption_key: str,
     tokenizer: Optional[Union[PreTrainedTokenizer, MultiTokenizer]] = None,
     sdxl_conditioning: bool = True,
     microcond_drop_prob: float = 0.1,
@@ -37,7 +37,7 @@ def func(
     out = {}
 
     # Image
-    # img = sample[image_key]
+    img = sample[image_key]
     img = img.convert("RGB") if img.mode != "RGB" else img
     orig_w, orig_h = img.size
 
@@ -81,7 +81,7 @@ def func(
         else:
             out["drop_caption_mask"] = 1.0
     else:
-        # caption = sample[caption_key]
+        caption = sample[caption_key]
         if isinstance(caption, List) and caption_selection == "first":
             caption = caption[0]
         if isinstance(caption, List) and caption_selection == "random":
@@ -118,22 +118,26 @@ def build_hfds_dataloader(
     split: str = "train",
     dataloader_kwargs: Optional[Dict] = None,
 ) -> DataLoader:
-    print(dataset_path)
+    logger.info(dataset_path)
 
     dataset = ds.load_dataset(
         path=dataset_path,
         split=split,
         streaming=True,
+        download_config=DownloadConfig(
+            max_retries=5,
+            use_etag=False,
+        ),
     )
     assert isinstance(dataset, ds.IterableDataset)
 
     if num_samples is not None:
         dataset = dataset.take(num_samples)
 
-    # dataset = dataset.select_columns(
-    #     column_names=[image_key, caption_key],
-    # )
-    # print(dataset)
+    dataset = dataset.select_columns(
+        column_names=[image_key, caption_key],
+    )
+    logger.info(dataset)
 
     transform = transform or [
         transforms.ToTensor(),
@@ -145,56 +149,13 @@ def build_hfds_dataloader(
             "crop": RandomCropSquare(size=resize_size),
             "transform": transforms.Compose(transform),
             "tokenizer": tokenizer,
+            "image_key": image_key,
+            "caption_key": caption_key,
         },
-        # features=ds.Features(
-        #     {
-        #         "image": ds.Sequence(ds.Sequence(ds.Value("float32"))),
-        #         "cond_crops_coords_top_left": ds.Sequence(ds.Value("float32")),
-        #         "cond_original_size": ds.Sequence(ds.Value("float32")),
-        #         "cond_target_size": ds.Sequence(ds.Value("float32")),
-        #         "captions": ds.Sequence(ds.Sequence(ds.Value("int32"))),
-        #         "attention_mask": ds.Sequence(ds.Sequence(ds.Value("int32"))),
-        #         "drop_caption_mask": ds.Sequence(ds.Sequence(ds.Value("float32"))),
-        #     }
-        # ),
-        input_columns=[image_key, caption_key],
-        remove_columns=[
-            "jpg",
-            "blip2_caption",
-            "licensename",
-            "licenseurl",
-            "width",
-            "height",
-            "original_width",
-            "original_height",
-            "photoid",
-            "uid",
-            "unickname",
-            "datetaken",
-            "dateuploaded",
-            "capturedevice",
-            "title",
-            "usertags",
-            "machinetags",
-            "longitude",
-            "latitude",
-            "accuracy",
-            "pageurl",
-            "downloadurl",
-            "serverid",
-            "farmid",
-            "secret",
-            "secretoriginal",
-            "ext",
-            "url",
-            "key",
-            "status",
-            "error_message",
-            "exif",
-            "sha256",
-            "description",
-        ],
+        remove_columns=[image_key, caption_key],
     )
+
+    dataloader_kwargs = dataloader_kwargs or {}
 
     dataloader = DataLoader(
         dataset,  # type: ignore
@@ -202,5 +163,4 @@ def build_hfds_dataloader(
         sampler=None,
         **dataloader_kwargs,
     )
-
     return dataloader

@@ -21,8 +21,14 @@ model:
   val_metrics:
     - _target_: torchmetrics.MeanSquaredError
 dataset:
+  # for debug
+  # train_batch_size: 16
+  # eval_batch_size: 16
+  
+  # for training
   train_batch_size: 1024
   eval_batch_size: 1024
+
   train_dataset:
     _target_: diffusion.datasets.hfds.build_hfds_dataloader
     dataset_path: common-canvas/commoncatalog-cc-by
@@ -30,6 +36,7 @@ dataset:
     image_key: jpg
     caption_key: blip2_caption
     split: train
+
     dataloader_kwargs:
       drop_last: true
       num_workers: 8
@@ -89,14 +96,19 @@ callbacks:
 trainer:
   _target_: composer.Trainer
 
-  max_duration: 600000ba
-  eval_interval: 10000ba
+  # max_duration is calculated as follows:
+  # 14,581,672 (number of rows) // 1,024 (batch size) = 14,239
+  # ref. https://huggingface.co/datasets/common-canvas/commoncatalog-cc-by
+  max_duration: 14239ba
+  eval_interval: 2500ba
   eval_subset_num_batches: 1024
   device_train_microbatch_size: # Device microbatch size
   run_name: ${name}
   seed: ${seed}
-
-  # autoresume: false
+  
+  # for debug
+  autoresume: false
+  # for training
   autoresume: true
   save_folder: save_folder
   save_interval: 1000ba
